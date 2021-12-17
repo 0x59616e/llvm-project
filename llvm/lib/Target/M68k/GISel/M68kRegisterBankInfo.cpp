@@ -50,7 +50,6 @@ RegisterBankInfo::ValueMapping ValueMappings[] = {
     {&PartMappings[PMI_GPR - PMI_Min], 1},
     {&PartMappings[PMI_GPR - PMI_Min], 1},
     {&PartMappings[PMI_GPR - PMI_Min], 1},
-
 };
 } // end namespace M68k
 } // end namespace llvm
@@ -76,16 +75,19 @@ M68kRegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
 
   using namespace TargetOpcode;
 
-  unsigned NumOperands = MI.getNumOperands();
+  unsigned NumOperands = MI.isPHI() ? 1 : MI.getNumOperands();
   const ValueMapping *OperandsMapping = &M68k::ValueMappings[M68k::GPR3OpsIdx];
 
   switch (Opc) {
   case G_ADD:
   case G_SUB:
   case G_MUL:
+  case G_AND:
+  case G_PHI:
   case G_SDIV:
   case G_UDIV:
   case G_LOAD:
+  case G_TRUNC:
   case G_STORE:
   case G_PTR_ADD: {
     OperandsMapping = &M68k::ValueMappings[M68k::GPR3OpsIdx];
@@ -94,9 +96,32 @@ M68kRegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
 
   case G_CONSTANT:
   case G_FRAME_INDEX:
+  case G_BRCOND:
     OperandsMapping =
         getOperandsMapping({&M68k::ValueMappings[M68k::GPR3OpsIdx], nullptr});
     break;
+
+  case G_ICMP:
+    // FIXME: Maybe we should change the name of the idx
+    //        Using `GPR3OpsIdx` here is really weird.
+    OperandsMapping =
+        getOperandsMapping({&M68k::ValueMappings[M68k::GPR3OpsIdx], nullptr,
+                            &M68k::ValueMappings[M68k::GPR3OpsIdx],
+                            &M68k::ValueMappings[M68k::GPR3OpsIdx]});
+    break;
+
+  case G_BR:
+    OperandsMapping = &M68k::ValueMappings[M68k::InvalidIdx];
+    break;
+
+  case G_SELECT:
+    OperandsMapping =
+        getOperandsMapping({&M68k::ValueMappings[M68k::GPR3OpsIdx],
+                            &M68k::ValueMappings[M68k::GPR3OpsIdx],
+                            &M68k::ValueMappings[M68k::GPR3OpsIdx],
+                            &M68k::ValueMappings[M68k::GPR3OpsIdx]});
+    break;
+
   default:
     return getInvalidInstructionMapping();
   }
