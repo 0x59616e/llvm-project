@@ -83,7 +83,9 @@ M68kRegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
   case G_SUB:
   case G_MUL:
   case G_AND:
+  case G_SHL:
   case G_PHI:
+  case G_ASHR:
   case G_SDIV:
   case G_UDIV:
   case G_LOAD:

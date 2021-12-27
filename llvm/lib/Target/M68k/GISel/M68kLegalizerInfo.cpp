@@ -59,5 +59,7 @@ M68kLegalizerInfo::M68kLegalizerInfo(const M68kSubtarget &ST) {
       .clampScalar(0, s32, s32);
   getActionDefinitionsBuilder(G_SELECT).legalFor({{s32, s1}});
 
+  getActionDefinitionsBuilder({G_SHL, G_ASHR}).legalFor({s32, s32});
+
   getLegacyLegalizerInfo().computeTables();
 }
