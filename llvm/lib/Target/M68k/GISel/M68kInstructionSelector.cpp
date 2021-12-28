@@ -290,10 +290,28 @@ bool M68kInstructionSelector::select(MachineInstr &I) {
   switch (I.getOpcode()) {
   default:
     break;
-
   case TargetOpcode::G_SELECT:
     return emitSelect(I);
+  case TargetOpcode::G_GLOBAL_VALUE: {
+    const GlobalValue *GV = I.getOperand(1).getGlobal();
+    // TODO: Support thread local storage
+    if (GV->isThreadLocal())
+      return false;
 
+    const M68kSubtarget &STI = I.getMF()->getSubtarget<M68kSubtarget>();
+    unsigned Flags = STI.classifyGlobalReference(GV);
+
+    // TODO: Support other addressing mode
+    if (Flags == M68kII::MO_PC_RELATIVE_ADDRESS) {
+      I.setDesc(TII.get(M68k::LEA32q));
+      MachineInstrBuilder MIB(*I.getMF(), I);
+      I.RemoveOperand(1);
+      MIB.addGlobalAddress(GV, 0, Flags);
+      constrainSelectedInstRegOperands(I, TII, TRI, RBI);
+      return true;
+    }
+    return false;
+  }
   case TargetOpcode::G_BRCOND: {
     MachineInstr *ICmp = MRI.getVRegDef(I.getOperand(0).getReg());
     if (ICmp->getOpcode() != TargetOpcode::G_ICMP)
@@ -306,7 +324,8 @@ bool M68kInstructionSelector::select(MachineInstr &I) {
     return true;
   }
 
-  case TargetOpcode::G_LOAD: {
+  case TargetOpcode::G_LOAD:
+  case TargetOpcode::G_STORE: {
     // GlobalISel does not support p0 very well.
     // For example, we need to change:
     // ```

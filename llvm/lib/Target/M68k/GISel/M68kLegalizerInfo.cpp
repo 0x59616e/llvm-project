@@ -29,7 +29,7 @@ M68kLegalizerInfo::M68kLegalizerInfo(const M68kSubtarget &ST) {
 
   getActionDefinitionsBuilder({G_ADD, G_SUB, G_MUL, G_UDIV, G_CONSTANT, G_AND})
       .legalFor({s32});
-  getActionDefinitionsBuilder(G_FRAME_INDEX).legalFor({p0});
+  getActionDefinitionsBuilder({G_FRAME_INDEX, G_GLOBAL_VALUE}).legalFor({p0});
 
   getActionDefinitionsBuilder({G_ADD, G_SUB, G_MUL, G_UDIV, G_AND})
       .legalFor({s8, s16, s32})
