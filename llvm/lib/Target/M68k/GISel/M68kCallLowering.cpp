@@ -15,6 +15,7 @@
 #include "M68kCallLowering.h"
 #include "M68kISelLowering.h"
 #include "M68kInstrInfo.h"
+#include "M68kMachineFunction.h"
 #include "M68kSubtarget.h"
 #include "M68kTargetMachine.h"
 #include "llvm/CodeGen/CallingConvLower.h"
@@ -118,9 +119,17 @@ bool M68kCallLowering::lowerFormalArguments(MachineIRBuilder &MIRBuilder,
       TLI.getCCAssignFn(F.getCallingConv(), false, F.isVarArg());
   IncomingValueAssigner ArgAssigner(AssignFn);
   FormalArgHandler ArgHandler(MIRBuilder, MRI);
-  return determineAndHandleAssignments(ArgHandler, ArgAssigner, SplitArgs,
-                                       MIRBuilder, F.getCallingConv(),
-                                       F.isVarArg());
+  bool result = determineAndHandleAssignments(ArgHandler, ArgAssigner,
+                                              SplitArgs, MIRBuilder,
+                                              F.getCallingConv(), F.isVarArg());
+  if (!result || !F.isVarArg())
+    return result;
+
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  M68kMachineFunctionInfo *MMFI = MF.getInfo<M68kMachineFunctionInfo>();
+  MMFI->setVarArgsFrameIndex(
+      MFI.CreateFixedObject(1, ArgHandler.StackUsed, true));
+  return true;
 }
 
 void M68kIncomingValueHandler::assignValueToReg(Register ValVReg,

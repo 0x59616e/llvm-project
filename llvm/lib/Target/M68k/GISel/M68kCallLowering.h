@@ -47,7 +47,7 @@ public:
 struct M68kIncomingValueHandler : public CallLowering::IncomingValueHandler {
   M68kIncomingValueHandler(MachineIRBuilder &MIRBuilder,
                            MachineRegisterInfo &MRI)
-      : CallLowering::IncomingValueHandler(MIRBuilder, MRI) {}
+      : CallLowering::IncomingValueHandler(MIRBuilder, MRI), StackUsed(0) {}
 
   uint64_t StackUsed;
 

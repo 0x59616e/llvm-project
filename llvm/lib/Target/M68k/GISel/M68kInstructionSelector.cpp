@@ -99,7 +99,7 @@ M68kInstructionSelector::M68kInstructionSelector(
 
 InstructionSelector::ComplexRendererFns
 M68kInstructionSelector::selectARI(MachineOperand &Root) const {
-  return None;
+  return {{[=](MachineInstrBuilder &MIB) { MIB.add(Root); }}};
 }
 
 InstructionSelector::ComplexRendererFns
@@ -341,6 +341,30 @@ bool M68kInstructionSelector::select(MachineInstr &I) {
       MRI.setType(Reg, LLT::scalar(32));
     }
     break;
+  }
+  case TargetOpcode::G_PTR_ADD: {
+    I.setDesc(TII.get(TargetOpcode::G_ADD));
+    MachineOperand &Dst = I.getOperand(0);
+    MachineOperand &Op1 = I.getOperand(1);
+    LLT s32 = LLT::scalar(32);
+    MRI.setType(Dst.getReg(), s32);
+    MRI.setType(Op1.getReg(), s32);
+    break;
+  }
+  case TargetOpcode::G_FRAME_INDEX: {
+    // const M68kRegisterInfo *TRI =
+    // I.getMF()->getSubtarget<M68kSubtarget>().getRegisterInfo();
+    // I.setDesc(TII.get(M68k::LEA32p));
+    // MachineInstrBuilder MIB(*I.getMF(), &I);
+    // MIB.addImm(0);
+    MachineInstr *NewMI =
+        BuildMI(*I.getParent(), &I, I.getDebugLoc(), TII.get(M68k::LEA32p))
+            .add(I.getOperand(0))
+            .addImm(0)
+            .add(I.getOperand(1));
+    I.eraseFromParent();
+    constrainSelectedInstRegOperands(*NewMI, TII, TRI, RBI);
+    return true;
   }
   }
 
