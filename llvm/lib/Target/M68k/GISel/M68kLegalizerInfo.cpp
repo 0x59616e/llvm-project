@@ -31,7 +31,8 @@ M68kLegalizerInfo::M68kLegalizerInfo(const M68kSubtarget &ST) {
   const LLT p0 = LLT::pointer(0, 32);
 
   getActionDefinitionsBuilder({G_ADD, G_SUB, G_MUL, G_UDIV, G_AND})
-      .legalFor({s32});
+      .legalFor({s8, s16, s32})
+      .clampScalar(0, s8, s32);
 
   getActionDefinitionsBuilder(G_CONSTANT).legalFor({s32, p0});
 
@@ -67,7 +68,9 @@ M68kLegalizerInfo::M68kLegalizerInfo(const M68kSubtarget &ST) {
 
   getActionDefinitionsBuilder({G_SHL, G_ASHR}).legalFor({s32, s32});
 
-  getActionDefinitionsBuilder(G_UADDO).legalFor({{s32, s1}});
+  getActionDefinitionsBuilder({G_UADDO, G_UADDE})
+      .legalFor({{s32, s1}})
+      .clampScalar(0, s32, s32);
 
   getActionDefinitionsBuilder(G_VAARG).customForCartesianProduct({s8, s16, s32},
                                                                  {p0});

@@ -61,6 +61,7 @@ private:
   bool emitCompare(MachineInstr &I, MachineOperand &LHS, MachineOperand &RHS);
   bool emitCompareAndBranch(MachineInstr &ICmp, MachineInstr &Br);
   bool emitSelect(MachineInstr &I);
+  bool emitADDX(MachineInstr &I, MachineRegisterInfo &MRI);
 
   const M68kTargetMachine &TM;
   const M68kInstrInfo &TII;
@@ -275,6 +276,25 @@ bool M68kInstructionSelector::emitSelect(MachineInstr &I) {
   return true;
 }
 
+bool M68kInstructionSelector::emitADDX(MachineInstr &I,
+                                       MachineRegisterInfo &MRI) {
+  // FIXME: we need to make sure that all of the G_UADD[OE] are emitted in a
+  // row.
+  assert(I.getOpcode() == TargetOpcode::G_UADDE);
+  MachineOperand &Dst = I.getOperand(0);
+  MachineOperand &Src1 = I.getOperand(2);
+  MachineOperand &Src2 = I.getOperand(3);
+
+  MachineInstr *NewMI =
+      BuildMI(*I.getParent(), I, I.getDebugLoc(), TII.get(M68k::ADDX32dd))
+          .add(Dst)
+          .add(Src1)
+          .add(Src2);
+  I.eraseFromParent();
+  constrainSelectedInstRegOperands(*NewMI, TII, TRI, RBI);
+  return true;
+}
+
 bool M68kInstructionSelector::select(MachineInstr &I) {
   if (I.isCopy())
     return constrainCopy(I);
@@ -365,6 +385,13 @@ bool M68kInstructionSelector::select(MachineInstr &I) {
     I.eraseFromParent();
     constrainSelectedInstRegOperands(*NewMI, TII, TRI, RBI);
     return true;
+  }
+  case TargetOpcode::G_UADDE:
+    return emitADDX(I, MRI);
+  case TargetOpcode::G_UADDO: {
+    I.setDesc(TII.get(TargetOpcode::G_ADD));
+    I.RemoveOperand(1);
+    break;
   }
   }
 

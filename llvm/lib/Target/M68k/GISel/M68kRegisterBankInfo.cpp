@@ -125,6 +125,15 @@ M68kRegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
                             &M68k::ValueMappings[M68k::GPR3OpsIdx]});
     break;
 
+  case G_UADDE:
+  case G_UADDO:
+    OperandsMapping =
+        getOperandsMapping({&M68k::ValueMappings[M68k::GPR3OpsIdx],
+                            &M68k::ValueMappings[M68k::GPR3OpsIdx],
+                            &M68k::ValueMappings[M68k::GPR3OpsIdx],
+                            &M68k::ValueMappings[M68k::GPR3OpsIdx],
+                            &M68k::ValueMappings[M68k::GPR3OpsIdx]});
+    break;
   default:
     return getInvalidInstructionMapping();
   }
