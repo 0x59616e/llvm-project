@@ -24,6 +24,11 @@ class M68kSubtarget;
 struct M68kLegalizerInfo : public LegalizerInfo {
 public:
   M68kLegalizerInfo(const M68kSubtarget &ST);
+  bool legalizeCustom(LegalizerHelper &Helper, MachineInstr &MI) const override;
+
+private:
+  bool legalizeVaArg(LegalizerHelper &Helper, MachineInstr &MI) const;
+  bool legalizeVaStart(LegalizerHelper &Helper, MachineInstr &MI) const;
 };
 } // end namespace llvm
 #endif // LLVM_LIB_TARGET_M68K_GLSEL_M68KLEGALIZERINFO_H

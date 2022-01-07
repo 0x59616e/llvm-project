@@ -77,6 +77,8 @@ M68kLegalizerInfo::M68kLegalizerInfo(const M68kSubtarget &ST) {
 
   getActionDefinitionsBuilder(G_VASTART).customFor({p0});
 
+  getActionDefinitionsBuilder(G_MEMCPY).libcall();
+
   getLegacyLegalizerInfo().computeTables();
 }
 
