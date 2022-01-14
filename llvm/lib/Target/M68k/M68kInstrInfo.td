@@ -494,6 +494,29 @@ def MxCP_PCD   : ComplexPattern<iPTR, 1, "SelectPCD",
 def MxCP_PCI   : ComplexPattern<iPTR, 2, "SelectPCI",
                                 [add, sub, mul, or, shl], [SDNPWantParent]>;
 
+def gi_MxCP_ARI : GIComplexOperandMatcher<s32, "selectARI">,
+                    GIComplexPatternEquiv<MxCP_ARI>;
+
+def gi_MxCP_ARIPI : GIComplexOperandMatcher<s32, "selectARIPI">,
+                      GIComplexPatternEquiv<MxCP_ARIPI>;
+
+def gi_MxCP_ARIPD : GIComplexOperandMatcher<s32, "selectARIPD">,
+                      GIComplexPatternEquiv<MxCP_ARIPD>;
+
+def gi_MxCP_ARID : GIComplexOperandMatcher<s32, "selectARID">,
+                      GIComplexPatternEquiv<MxCP_ARID>;
+
+def gi_MxCP_ARII : GIComplexOperandMatcher<s32, "selectARII">,
+                      GIComplexPatternEquiv<MxCP_ARII>;
+
+def gi_MxCP_AL : GIComplexOperandMatcher<s32, "selectAL">,
+                      GIComplexPatternEquiv<MxCP_AL>;
+
+def gi_MxCP_PCD : GIComplexOperandMatcher<s32, "selectPCD">,
+                      GIComplexPatternEquiv<MxCP_PCD>;
+
+def gi_MxCP_PCI : GIComplexOperandMatcher<s32, "selectPCI">,
+                      GIComplexPatternEquiv<MxCP_PCI>;
 
 //===----------------------------------------------------------------------===//
 // Pattern Fragments
@@ -524,7 +547,11 @@ def Mxloadi16 : PatFrag<(ops node:$ptr), (i16 (unindexedload node:$ptr)), [{
   if (ExtType == ISD::EXTLOAD)
     return LD->getAlignment() >= 2 && !LD->isSimple();
   return false;
-}]>;
+}]> {
+  let GISelPredicateCode = [{
+    return (*MI.memoperands_begin())->getSize() == 2;
+  }];
+}
 
 def Mxloadi32 : PatFrag<(ops node:$ptr), (i32 (unindexedload node:$ptr)), [{
   LoadSDNode *LD = cast<LoadSDNode>(N);
@@ -534,7 +561,11 @@ def Mxloadi32 : PatFrag<(ops node:$ptr), (i32 (unindexedload node:$ptr)), [{
   if (ExtType == ISD::EXTLOAD)
     return LD->getAlignment() >= 4 && !LD->isSimple();
   return false;
-}]>;
+}]> {
+  let GISelPredicateCode = [{
+    return (*MI.memoperands_begin())->getSize() == 4;
+  }];
+}
 
 def Mxloadi8         : PatFrag<(ops node:$ptr), (i8  (load node:$ptr))>;
 

@@ -68,12 +68,12 @@ let mayStore = 1 in {
 class MxMove_MR<MxOperand MEMOpd, ComplexPattern MEMPat, MxType REG,
                 MxMoveEncoding ENC>
     : MxMove<REG.Prefix, (outs), (ins MEMOpd:$dst, REG.ROp:$src),
-             [(store REG.VT:$src, MEMPat:$dst)], ENC>;
+             [(store REG.VT:$src, (MEMPat MEMOpd:$dst))], ENC>;
 
 class MxMove_MI<MxOperand MEMOpd, ComplexPattern MEMPat, MxType TYPE,
                 MxMoveEncoding ENC>
     : MxMove<TYPE.Prefix, (outs), (ins MEMOpd:$dst, TYPE.IOp:$src),
-             [(store TYPE.IPat:$src, MEMPat:$dst)], ENC>;
+             [(store TYPE.IPat:$src, (MEMPat MEMOpd:$dst))], ENC>;
 } // let mayStore = 1
 
 class MxMove_RI<MxType DST, MxMoveEncoding ENC>
@@ -87,7 +87,7 @@ class MxMove_RM<MxType REG, MxOperand MEMOpd, ComplexPattern MEMPat,
                 MxEncEA SRCEA, MxEncExt SRCEXT,
                 MxEncEA DSTEA, MxEncExt DSTEXT>
     : MxMove<REG.Prefix, (outs REG.ROp:$dst), (ins MEMOpd:$src),
-             [(set REG.VT:$dst, (REG.Load MEMPat:$src))],
+             [(set REG.VT:$dst, (REG.Load (MEMPat MEMOpd:$src)))],
              MxMoveEncoding<SIZE, SRCEA, SRCEXT, DSTEA, DSTEXT>>;
 
 multiclass MMxMove_RM<MxType REG, MxMoveSize SIZE, MxEncEA EA_0> {
@@ -133,7 +133,7 @@ class MxMove_MM<string SIZE, PatFrag LOAD,
                 MxEncEA SRCEA, MxEncExt SRCEXT,
                 MxEncEA DSTEA, MxEncExt DSTEXT>
     : MxMove<SIZE, (outs), (ins DSTOpd:$dst, SRCOpd:$src),
-             [(store (LOAD SRCPat:$src), DSTPat:$dst)],
+             [(store (LOAD (SRCPat SRCOpd:$src)), (DSTPat DSTOpd:$dst))],
              MxMoveEncoding<ESIZE, SRCEA, SRCEXT, DSTEA, DSTEXT>>;
 } // let mayLoad = 1, mayStore = 1
 

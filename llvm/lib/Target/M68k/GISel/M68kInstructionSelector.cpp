@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "M68kRegisterBankInfo.h"
+#include "M68kRegisterInfo.h"
 #include "M68kSubtarget.h"
 #include "M68kTargetMachine.h"
 #include "llvm/CodeGen/GlobalISel/InstructionSelector.h"
@@ -31,8 +32,26 @@ public:
   bool select(MachineInstr &I) override;
   static const char *getName() { return DEBUG_TYPE; }
 
+  // Address Register Indirect
+  ComplexRendererFns selectARI(MachineOperand &Root) const;
+  // Address Register Indirect with PostIncrement
+  ComplexRendererFns selectARIPI(MachineOperand &Root) const;
+  // Address Register Indirect with PreDecrement
+  ComplexRendererFns selectARIPD(MachineOperand &Root) const;
+  // Address Register Indirect with Displacement
+  ComplexRendererFns selectARID(MachineOperand &Root) const;
+  // Address Register Indirect with Index
+  ComplexRendererFns selectARII(MachineOperand &Root) const;
+  // Absolute Long Address Mode
+  ComplexRendererFns selectAL(MachineOperand &Root) const;
+  // Program Counter with Displacement
+  ComplexRendererFns selectPCD(MachineOperand &Root) const;
+  // Program Counter with Index
+  ComplexRendererFns selectPCI(MachineOperand &Root) const;
+
 private:
   bool selectImpl(MachineInstr &I, CodeGenCoverage &CoverageInfo) const;
+  bool constrainCopy(MachineInstr &I) const;
 
   const M68kTargetMachine &TM;
   const M68kInstrInfo &TII;
@@ -69,10 +88,129 @@ M68kInstructionSelector::M68kInstructionSelector(
 {
 }
 
+InstructionSelector::ComplexRendererFns
+M68kInstructionSelector::selectARI(MachineOperand &Root) const {
+  return None;
+}
+
+InstructionSelector::ComplexRendererFns
+M68kInstructionSelector::selectARIPI(MachineOperand &Root) const {
+  return None;
+}
+
+InstructionSelector::ComplexRendererFns
+M68kInstructionSelector::selectARIPD(MachineOperand &Root) const {
+  return None;
+}
+
+InstructionSelector::ComplexRendererFns
+M68kInstructionSelector::selectARID(MachineOperand &Root) const {
+  LLVM_DEBUG(dbgs() << "GISel: Selecting ARID\n");
+
+  MachineRegisterInfo &MRI = Root.getParent()->getMF()->getRegInfo();
+
+  MachineInstr *RootDef = MRI.getVRegDef(Root.getReg());
+
+  switch (RootDef->getOpcode()) {
+  default:
+    break;
+  case TargetOpcode::G_PTR_ADD: {
+    auto ValAndVReg = getIConstantVRegValWithLookThrough(
+        RootDef->getOperand(2).getReg(), MRI);
+
+    if (!ValAndVReg)
+      break;
+
+    int64_t Imm = ValAndVReg->Value.getSExtValue();
+    Register Reg = RootDef->getOperand(1).getReg();
+
+    return {{[=](MachineInstrBuilder &MIB) { MIB.addImm(Imm).addUse(Reg); }}};
+  }
+  case TargetOpcode::G_FRAME_INDEX:
+    return {{[=](MachineInstrBuilder &MIB) {
+      MIB.addImm(0).add(RootDef->getOperand(1));
+    }}};
+  }
+
+  return None;
+}
+
+InstructionSelector::ComplexRendererFns
+M68kInstructionSelector::selectARII(MachineOperand &Root) const {
+  return None;
+}
+
+InstructionSelector::ComplexRendererFns
+M68kInstructionSelector::selectAL(MachineOperand &Root) const {
+  return None;
+}
+
+InstructionSelector::ComplexRendererFns
+M68kInstructionSelector::selectPCD(MachineOperand &Root) const {
+  return None;
+}
+
+InstructionSelector::ComplexRendererFns
+M68kInstructionSelector::selectPCI(MachineOperand &Root) const {
+  return None;
+}
+
+bool M68kInstructionSelector::constrainCopy(MachineInstr &I) const {
+  MachineOperand &Dst = I.getOperand(0);
+  MachineOperand &Src = I.getOperand(1);
+  MachineRegisterInfo &MRI = I.getMF()->getRegInfo();
+
+  if (Dst.getReg().isVirtual() && Src.getReg().isPhysical()) {
+    auto &RegBankOrClass = MRI.getRegClassOrRegBank(Dst.getReg());
+    if (RegBankOrClass.is<const TargetRegisterClass *>())
+      return true;
+
+    LLT Ty = MRI.getType(Dst.getReg());
+    const TargetRegisterClass *TRI = nullptr;
+    if (Ty.getSizeInBits() <= 8) {
+      TRI = &M68k::DR8RegClass;
+    } else if (Ty.getSizeInBits() == 16) {
+      TRI = &M68k::XR16RegClass;
+    } else {
+      TRI = &M68k::XR32RegClass;
+    }
+
+    assert(TRI && "No register class ??");
+    return RBI.constrainGenericRegister(Dst.getReg(), *TRI, MRI) != nullptr;
+  }
+
+  return true;
+}
+
 bool M68kInstructionSelector::select(MachineInstr &I) {
+  if (I.isCopy())
+    return constrainCopy(I);
+
   // Certain non-generic instructions also need some special handling.
   if (!isPreISelGenericOpcode(I.getOpcode()))
     return true;
+
+  // GlobalISel does not support p0 very well.
+  // For example, we need to change:
+  // ```
+  // %0:_(p0) = G_LOAD ...
+  // ```
+  // into this:
+  // ```
+  // %0_(s32) = G_LOAD
+  // ```
+  switch (I.getOpcode()) {
+  case TargetOpcode::G_LOAD: {
+    MachineRegisterInfo &MRI = I.getMF()->getRegInfo();
+
+    Register Reg = I.getOperand(0).getReg();
+    LLT Ty = MRI.getType(Reg);
+    if (Ty.isPointer()) {
+      MRI.setType(Reg, LLT::scalar(32));
+    }
+    break;
+  }
+  }
 
   if (selectImpl(I, *CoverageInfo))
     return true;
