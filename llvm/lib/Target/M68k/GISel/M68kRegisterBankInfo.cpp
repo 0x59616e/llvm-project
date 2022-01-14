@@ -86,7 +86,8 @@ M68kRegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
   case G_SDIV:
   case G_UDIV:
   case G_LOAD:
-  case G_STORE: {
+  case G_STORE:
+  case G_PTR_ADD: {
     OperandsMapping = &M68k::ValueMappings[M68k::GPR3OpsIdx];
     break;
   }
