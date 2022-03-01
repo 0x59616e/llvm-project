@@ -479,7 +479,7 @@ class MxInst<dag outs, dag ins,
   // Byte stream
   field bits<192> Beads = beads.Value;
   dag Inst = (ascend);
-
+  bit isVarLenInst = 1;
   // Number of bytes
   let Size = 0;
 

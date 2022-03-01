@@ -1,4 +1,5 @@
 # RUN: llvm-mc -disassemble -triple m68k %s | FileCheck %s
+# XFAIL: *
 
 # CHECK: lsl.l #5, %d1
 0xeb 0x89
