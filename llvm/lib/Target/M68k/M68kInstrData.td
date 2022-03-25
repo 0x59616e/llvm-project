@@ -51,78 +51,89 @@ class MxMoveEncoding<MxBead2Bits size,
                  dstExt.Imm, dstExt.B8, dstExt.Scale, dstExt.WL, dstExt.DAReg>;
 
 /// MOVE has alternate size encoding
-class MxMoveSize<bits<2> value> : MxBead2Bits<value>;
+class MxMoveSize<bits<2> value> {
+  dag Value = (descend value);
+}
+
 def MxMoveSize8  : MxMoveSize<0b01>;
 def MxMoveSize16 : MxMoveSize<0b11>;
 def MxMoveSize32 : MxMoveSize<0b10>;
 
-let Defs = [CCR] in
-class MxMove<string size, dag outs, dag ins, list<dag> pattern, MxEncoding enc>
-    : MxInst<outs, ins, "move."#size#"\t$src, $dst", pattern, enc>;
+class MxMoveEnc<MxMoveSizeEnc size,
+                  MxMemEncOp DSTEnc,
+                  MxMemEncOp SRCEnc> {
+  dag Value = (ascend
+                  (descend 0b00, size.Value, DSTEnc.Reg, DSTEnc.Mode, SRCEnc.EA),
+                  SRCEnc.Supplement,
+                  DSTEnc.Supplement
+              );
+}
 
-class MxMove_RR<MxType DST, MxType SRC, MxMoveEncoding ENC>
+let Defs = [CCR] in
+class MxMove<string size, dag outs, dag ins, list<dag> pattern, MxMoveEnc ENC>
+    : MxInst<outs, ins, "move."#size#"\t$src, $dst", pattern, ENC.Value>;
+
+class MxMove_RR<MxType DST, MxType SRC, MxMoveEnc ENC>
     : MxMove<DST.Prefix, (outs DST.ROp:$dst), (ins SRC.ROp:$src),
              [(null_frag)], ENC>;
 
 let mayStore = 1 in {
 class MxMove_MR<MxOperand MEMOpd, ComplexPattern MEMPat, MxType REG,
-                MxMoveEncoding ENC>
+                MxMoveEnc ENC>
     : MxMove<REG.Prefix, (outs), (ins MEMOpd:$dst, REG.ROp:$src),
              [(store REG.VT:$src, MEMPat:$dst)], ENC>;
 
 class MxMove_MI<MxOperand MEMOpd, ComplexPattern MEMPat, MxType TYPE,
-                MxMoveEncoding ENC>
+                MxMoveEnc ENC>
     : MxMove<TYPE.Prefix, (outs), (ins MEMOpd:$dst, TYPE.IOp:$src),
              [(store TYPE.IPat:$src, MEMPat:$dst)], ENC>;
 } // let mayStore = 1
 
-class MxMove_RI<MxType DST, MxMoveEncoding ENC>
+class MxMove_RI<MxType DST, MxMoveEnc ENC>
     : MxMove<DST.Prefix, (outs DST.ROp:$dst), (ins DST.IOp:$src),
               [(set DST.VT:$dst, DST.IPat:$src)], ENC>;
 
 
 let mayLoad = 1 in
 class MxMove_RM<MxType REG, MxOperand MEMOpd, ComplexPattern MEMPat,
-                MxBead2Bits SIZE,
-                MxEncEA SRCEA, MxEncExt SRCEXT,
-                MxEncEA DSTEA, MxEncExt DSTEXT>
+                MxMoveSize SIZE, MxMemEncOp SRCEnc>
     : MxMove<REG.Prefix, (outs REG.ROp:$dst), (ins MEMOpd:$src),
              [(set REG.VT:$dst, (REG.Load MEMPat:$src))],
-             MxMoveEncoding<SIZE, SRCEA, SRCEXT, DSTEA, DSTEXT>>;
+             MxMoveEnc<SIZE, MxEncAddrMode_r<"$dst">, SRCEnc>>;
 
-multiclass MMxMove_RM<MxType REG, MxMoveSize SIZE, MxEncEA EA_0> {
+multiclass MMxMove_RM<MxType REG, MxMoveSize SIZE> {
 
   // REG <- (An)+
   def NAME#REG.OOp.Letter#REG.Postfix : MxMove_RM<REG, REG.OOp, REG.OPat,
-      SIZE, MxEncEAo_1, MxExtEmpty, EA_0, MxExtEmpty>;
+      SIZE, MxEncAddrMode_o<"$src">>;
 
   // REG <- -(An)
   def NAME#REG.EOp.Letter#REG.Postfix : MxMove_RM<REG, REG.EOp, REG.EPat,
-      SIZE, MxEncEAe_1, MxExtEmpty, EA_0, MxExtEmpty>;
+      SIZE, MxEncAddrMode_e<"src">>;
 
   // REG <- (i,PC,Xn)
   def NAME#REG.KOp.Letter#REG.Postfix : MxMove_RM<REG, REG.KOp, REG.KPat,
-      SIZE, MxEncEAk, MxExtBrief_1, EA_0, MxExtEmpty>;
+      SIZE, MxEncAddrMode_k<"src">>;
 
   // REG <- (i,PC)
   def NAME#REG.QOp.Letter#REG.Postfix : MxMove_RM<REG, REG.QOp, REG.QPat,
-      SIZE, MxEncEAq, MxExtI16_1, EA_0, MxExtEmpty>;
+      SIZE, MxEncAddrMode_q<"src">>;
 
   // REG <- (i,An,Xn)
   def NAME#REG.FOp.Letter#REG.Postfix : MxMove_RM<REG, REG.FOp, REG.FPat,
-      SIZE, MxEncEAf_1, MxExtBrief_1, EA_0, MxExtEmpty>;
+      SIZE, MxEncAddrMode_f<"src">>;
 
   // REG <- (i,An)
   def NAME#REG.POp.Letter#REG.Postfix : MxMove_RM<REG, REG.POp, REG.PPat,
-      SIZE, MxEncEAp_1, MxExtI16_1, EA_0, MxExtEmpty>;
+      SIZE, MxEncAddrMode_p<"src">>;
 
   // REG <- (ABS)
   def NAME#REG.BOp.Letter#REG.Postfix : MxMove_RM<REG, REG.BOp, REG.BPat,
-      SIZE, MxEncEAb, MxExtI32_1, EA_0, MxExtEmpty>;
+      SIZE, MxEncAddrMode_abs<"src">>;
 
   // REG <- (An)
   def NAME#REG.JOp.Letter#REG.Postfix : MxMove_RM<REG, REG.JOp, REG.JPat,
-      SIZE, MxEncEAj_1, MxExtEmpty, EA_0, MxExtEmpty>;
+      SIZE, MxEncAddrMode_j<"src">>;
 }
 
 let mayLoad = 1, mayStore = 1 in {

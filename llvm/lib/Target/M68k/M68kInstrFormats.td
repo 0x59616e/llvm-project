@@ -469,7 +469,7 @@ def MxNewEncSize64 : MxNewEncSize<0b11>;
 class MxInst<dag outs, dag ins,
              string asmStr = "",
              list<dag> pattern = [],
-             MxEncoding beads = MxEncEmpty,
+             dag encoding,
              InstrItinClass itin = NoItinerary>
     : Instruction {
   let Namespace      = "M68k";
@@ -485,7 +485,7 @@ class MxInst<dag outs, dag ins,
   bit isVarLenInst = 1;
   // Number of bytes
   let Size = 0;
-
+  let Inst = encoding;
   let UseLogicalOperandMappings = 1;
 }
 
