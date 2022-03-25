@@ -201,7 +201,9 @@ class MxEncEA<MxBead reg, MxBead mode, MxBead da = MxBeadIgnore> {
 }
 
 class MxEncMemOp {
-  dag EA = (ascend);
+  dag Reg = (descend);
+  dag Mode = (descend);
+  dag EA = (descend Mode, Reg);
   dag Supplement = (ascend);
 }
 
@@ -264,22 +266,23 @@ class MxEncBriefExt<string reg_opnd, string disp_opnd,
 }
 
 class MxEncAddrMode_r<string reg_opnd> : MxEncMemOp {
-  let EA = (descend /*MODE without the last bit*/0b00,
-                    /*REGISTER with D/A bit*/(operand "$"#reg_opnd, 4));
+  let Reg = (descend (slice "$"#reg_opnd, 2, 0));
+  let Mode = (descend 0b00, (slice "$"#reg_opnd, 3, 3));
 }
 
 class MxEncAddrMode_k<string opnd_name> : MxEncMemOp {
-  let EA = (descend /*MODE*/0b111,
-                    /*REGISTER*/0b011);
+  let Reg = (descend 0b011);
+  let Mode = (descend 0b111);
 
   let Supplement = MxEncBriefExt<opnd_name#".index", opnd_name#".disp",
                                  /*W/L*/true, /*SCALE*/1,
                                  "encodePCRelImm<8>">.Value;
+
 }
 
 class MxEncAddrMode_q<string opnd_name> : MxEncMemOp {
-  let EA = (descend /*MODE*/0b111,
-                     /*REGISTER*/0b010);
+  let Reg = (descend 0b010);
+  let Mode = (descend 0b111);
 
   // 16-bit Displacement
   let Supplement = (operand "$"#opnd_name, 16,
@@ -287,8 +290,8 @@ class MxEncAddrMode_q<string opnd_name> : MxEncMemOp {
 }
 
 class MxEncAddrMode_p<string opnd_name> : MxEncMemOp {
-  let EA = (descend /*MODE*/0b101,
-                     /*REGISTER*/(operand "$"#opnd_name#".reg", 3));
+  let Reg = (descend (operand "$"#opnd_name#".reg", 3));
+  let Mode = (descend 0b101);
 
   // 16-bit Displacement
   let Supplement = (operand "$"#opnd_name#".disp", 16,
@@ -296,8 +299,8 @@ class MxEncAddrMode_p<string opnd_name> : MxEncMemOp {
 }
 
 class MxEncAddrMode_f<string opnd_name> : MxEncMemOp {
-  let EA = (descend /*MODE*/0b110,
-                     /*REGISTER*/(operand "$"#opnd_name#".reg", 3));
+  let Reg = (descend (operand "$"#opnd_name#".reg", 3));
+  let Mode = (descend 0b110);
 
   let Supplement = MxEncBriefExt<opnd_name#".index", opnd_name#".disp",
                                  /*W/L*/true, /*SCALE*/1,
@@ -305,13 +308,13 @@ class MxEncAddrMode_f<string opnd_name> : MxEncMemOp {
 }
 
 class MxEncAddrMode_j<string reg_opnd> : MxEncMemOp {
-  let EA = (descend /*MODE*/0b010,
-                     /*REGISTER*/(operand "$"#reg_opnd, 3));
+  let Reg = (descend (operand "$"#reg_opnd, 3));
+  let Mode = (descend 0b010);
 }
 
 class MxEncAddrMode_i<string opnd_name, int size> : MxEncMemOp {
-  let EA = (descend /*MODE*/0b111,
-                     /*REGISTER*/0b100);
+  let Reg = (descend 0b100);
+  let Mode = (descend 0b111);
 
   // Immediate
   let Supplement =
@@ -326,8 +329,8 @@ class MxEncAddrMode_i<string opnd_name, int size> : MxEncMemOp {
 // abs.W -> size_w_l = false
 // abs.L -> size_w_l = true
 class MxEncAddrMode_abs<string opnd_name, bit size_w_l = false> : MxEncMemOp {
-  let EA = (descend /*MODE*/0b111,
-                     /*REGISTER*/0b00, size_w_l);
+  let Reg = (descend 0b00, size_w_l);
+  let Mode = (descend 0b111);
 
   // Absolute address
   let Supplement = !if(size_w_l,
@@ -339,13 +342,13 @@ class MxEncAddrMode_abs<string opnd_name, bit size_w_l = false> : MxEncMemOp {
 }
 
 class MxEncAddrMode_o<string reg_opnd> : MxEncMemOp {
-  let EA = (descend /*MODE*/0b011,
-                    /*REGISTER*/(operand "$"#reg_opnd, 3));
+  let Reg = (descend (operand "$"#reg_opnd, 3));
+  let Mode = (descend 0b011);
 }
 
 class MxEncAddrMode_e<string reg_opnd> : MxEncMemOp {
-  let EA = (descend /*MODE*/0b100,
-                    /*REGISTER*/(operand "$"#reg_opnd, 3));
+  let Reg = (descend (operand "$"#reg_opnd, 3));
+  let Mode = (descend 0b100);
 }
 
 // Allows you to specify each bit of opcode
