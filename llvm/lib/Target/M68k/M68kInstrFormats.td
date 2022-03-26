@@ -265,6 +265,16 @@ class MxEncBriefExt<string reg_opnd, string disp_opnd,
   );
 }
 
+class MxEncAddrMode_d<string reg_opnd> : MxEncMemOp {
+  let Reg = (descend (operand "$"#reg_opnd, 3));
+  let Mode = (descend 0b000);
+}
+
+class MxEncAddrMode_a<string reg_opnd> : MxEncMemOp {
+  let Reg = (descend (operand "$"#reg_opnd, 3));
+  let Mode = (descend 0b001);
+}
+
 class MxEncAddrMode_r<string reg_opnd> : MxEncMemOp {
   let Reg = (descend (slice "$"#reg_opnd, 2, 0));
   let Mode = (descend 0b00, (slice "$"#reg_opnd, 3, 3));
@@ -469,7 +479,6 @@ def MxNewEncSize64 : MxNewEncSize<0b11>;
 class MxInst<dag outs, dag ins,
              string asmStr = "",
              list<dag> pattern = [],
-             dag encoding,
              InstrItinClass itin = NoItinerary>
     : Instruction {
   let Namespace      = "M68k";
@@ -480,12 +489,11 @@ class MxInst<dag outs, dag ins,
   let Itinerary      = itin;
 
   // Byte stream
-  field bits<192> Beads = beads.Value;
   dag Inst = (ascend);
   bit isVarLenInst = 1;
   // Number of bytes
   let Size = 0;
-  let Inst = encoding;
+
   let UseLogicalOperandMappings = 1;
 }
 
