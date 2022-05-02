@@ -118,15 +118,15 @@ DecodeStatus M68kDisassembler::getInstruction(MCInst &Instr, uint64_t &Size,
                                               raw_ostream &CStream) const {
   DecodeStatus Result;
   auto MakeUp = [&](APInt &Insn, unsigned InstrBits) {
-    unsigned i = Insn.getBitWidth();
-    unsigned RoundUp = ((InstrBits + 0xf) & ~0xf);
+    unsigned Idx = Insn.getBitWidth() >> 3;
+    unsigned RoundUp = alignTo(InstrBits, Align(16));
     Insn = Insn.zextOrSelf(RoundUp);
     RoundUp = RoundUp >> 3;
-    for (i = i >> 3; i < RoundUp; i += 2) {
-      Insn.insertBits(support::endian::read16be(&Bytes[i]), i * 8, 16);
+    for (; Idx < RoundUp; Idx += 2) {
+      Insn.insertBits(support::endian::read16be(&Bytes[Idx]), Idx * 8, 16);
     }
   };
-  APInt Insn = APInt(16, support::endian::read16be(Bytes.data()));
+  APInt Insn(16, support::endian::read16be(Bytes.data()));
   Result = decodeInstruction(DecoderTable80, Instr, Insn, Address, this, STI,
                              MakeUp);
   if (Result == DecodeStatus::Success)
