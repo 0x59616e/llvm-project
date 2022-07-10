@@ -4680,6 +4680,86 @@ public:
   }
 };
 
+/// Represents a list-initialization with parenthesis.
+///
+/// As per P0960R3, this is a C++20 feature that allows aggregate to
+/// be initialized with a parenthesized list of values:
+/// ```
+/// struct A {
+///   int a;
+///   double b;
+/// };
+///
+/// void foo() {
+///   A a1(0);        // legal in C++20
+///   A a2(1.5, 1.0); // legal in C++20
+/// }
+/// ```
+/// It has some sort of similiarity to braced
+/// list-initialization, with some differences such as
+/// it allows narrowing conversion whilst braced
+/// list-initialization doesn't.
+/// ```
+/// struct A {
+///   char a;
+/// };
+/// void foo() {
+///   A a(1.5); // legal in C++20
+///   A b{1.5}; // illegal !
+/// }
+/// ```
+class CXXParenListInitExpr final
+    : public Expr,
+      private llvm::TrailingObjects<CXXParenListInitExpr, Expr *> {
+  friend class TrailingObjects;
+
+  unsigned NumExprs;
+  SourceLocation Loc;
+
+  CXXParenListInitExpr(ArrayRef<Expr *> Args, QualType T, SourceLocation Loc)
+      : Expr(CXXParenListInitExprClass, T,
+             T->isLValueReferenceType()   ? VK_LValue
+             : T->isRValueReferenceType() ? VK_PRValue
+                                          : VK_XValue,
+             OK_Ordinary),
+        NumExprs(Args.size()), Loc(Loc) {
+    std::copy(Args.begin(), Args.end(), getTrailingObjects<Expr *>());
+  }
+
+  size_t numTrailingObjects(OverloadToken<Expr *>) const { return NumExprs; }
+
+public:
+  static CXXParenListInitExpr *Create(ASTContext &C, ArrayRef<Expr *> Args,
+                                      QualType T, SourceLocation Loc);
+
+  ArrayRef<Expr *> getInitExprs() {
+    return {getTrailingObjects<Expr *>(), NumExprs};
+  }
+
+  SourceLocation getBeginLoc() const LLVM_READONLY { return Loc; }
+
+  SourceLocation getEndLoc() const LLVM_READONLY { return Loc; }
+
+  SourceRange getSourceRange() const LLVM_READONLY {
+    return SourceRange(getBeginLoc(), getEndLoc());
+  }
+
+  child_range children() {
+    Stmt **Begin = reinterpret_cast<Stmt **>(getTrailingObjects<Expr *>());
+    return child_range(Begin, Begin + NumExprs);
+  }
+
+  const_child_range children() const {
+    Stmt *const *Begin =
+        reinterpret_cast<Stmt *const *>(getTrailingObjects<Expr *>());
+    return const_child_range(Begin, Begin + NumExprs);
+  }
+
+  static bool classof(const Stmt *T) {
+    return T->getStmtClass() == CXXParenListInitExprClass;
+  }
+};
+
 /// Represents an expression that might suspend coroutine execution;
 /// either a co_await or co_yield expression.
 ///

@@ -13887,6 +13887,13 @@ TreeTransform<Derived>::TransformCXXFoldExpr(CXXFoldExpr *E) {
   return Result;
 }
 
+template <typename Derived>
+ExprResult
+TreeTransform<Derived>::TransformCXXParenListInitExpr(CXXParenListInitExpr *E) {
+  // FIXME: unimplemented
+  llvm_unreachable("unimplemented");
+}
+
 template<typename Derived>
 ExprResult
 TreeTransform<Derived>::TransformCXXStdInitializerListExpr(

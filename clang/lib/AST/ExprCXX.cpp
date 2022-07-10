@@ -1746,3 +1746,11 @@ CUDAKernelCallExpr *CUDAKernelCallExpr::CreateEmpty(const ASTContext &Ctx,
                            alignof(CUDAKernelCallExpr));
   return new (Mem) CUDAKernelCallExpr(NumArgs, HasFPFeatures, Empty);
 }
+
+CXXParenListInitExpr *CXXParenListInitExpr::Create(ASTContext &C,
+                                                   ArrayRef<Expr *> Args,
+                                                   QualType T,
+                                                   SourceLocation Loc) {
+  void *Mem = C.Allocate(totalSizeToAlloc<Expr *>(Args.size()));
+  return new (Mem) CXXParenListInitExpr(Args, T, Loc);
+}

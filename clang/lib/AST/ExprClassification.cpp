@@ -442,6 +442,10 @@ static Cl::Kinds ClassifyInternal(ASTContext &Ctx, const Expr *E) {
   case Expr::SYCLUniqueStableNameExprClass:
     return Cl::CL_PRValue;
     break;
+
+  case Expr::CXXParenListInitExprClass:
+    // FIXME: unimplemented
+    llvm_unreachable("unimplemented");
   }
 
   llvm_unreachable("unhandled expression kind in classification");

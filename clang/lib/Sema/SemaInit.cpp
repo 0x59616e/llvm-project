@@ -3519,11 +3519,13 @@ void InitializationSequence::Step::Destroy() {
   case SK_StdInitializerListConstructorCall:
   case SK_OCLSamplerInit:
   case SK_OCLZeroOpaqueType:
+  case SK_ParenthesizedListInit:
     break;
 
   case SK_ConversionSequence:
   case SK_ConversionSequenceNoNarrowing:
     delete ICS;
+    break;
   }
 }
 
@@ -3578,6 +3580,7 @@ bool InitializationSequence::isAmbiguous() const {
   case FK_PlaceholderType:
   case FK_ExplicitConstructor:
   case FK_AddressOfUnaddressableFunction:
+  case FK_ParenthesizedListInitFailed:
     return false;
 
   case FK_ReferenceInitOverloadFailed:
@@ -3809,6 +3812,13 @@ void InitializationSequence::AddOCLSamplerInitStep(QualType T) {
 void InitializationSequence::AddOCLZeroOpaqueTypeStep(QualType T) {
   Step S;
   S.Kind = SK_OCLZeroOpaqueType;
+  S.Type = T;
+  Steps.push_back(S);
+}
+
+void InitializationSequence::AddParenthesizedListInitStep(QualType T) {
+  Step S;
+  S.Kind = SK_ParenthesizedListInit;
   S.Type = T;
   Steps.push_back(S);
 }
@@ -4054,6 +4064,114 @@ ResolveConstructorOverload(Sema &S, SourceLocation DeclLoc,
 
   // Perform overload resolution and return the result.
   return CandidateSet.BestViableFunction(S, DeclLoc, Best);
+}
+
+static void VerifyOrPerformParenthesizedListInit(
+    Sema &S, const InitializedEntity &Entity, const InitializationKind &Kind,
+    ArrayRef<Expr *> Args, InitializationSequence &Sequence, bool VerifyOnly,
+    ExprResult *Result = nullptr) {
+
+  unsigned Index = 0;
+  SmallVector<Expr *, 4> InitExprs;
+  QualType ResultType;
+
+  auto InitHelper = [&](auto Range) -> bool {
+    for (InitializedEntity SubEntity : Range) {
+      if (Index == Args.size())
+        // All the initializers are consumed, time to leave.
+        return true;
+
+      Expr *E = Args[Index++];
+      InitializationKind SubKind = InitializationKind::CreateForInit(
+          E->getExprLoc(), /*isDirectInit*/ false, E);
+      InitializationSequence Seq(S, SubEntity, SubKind, E);
+
+      if (Seq.Failed()) {
+        if (!VerifyOnly)
+          Seq.Diagnose(S, SubEntity, SubKind, E);
+        else if (!Sequence.Failed())
+          // Fall back to the "no matching constructor" path if the
+          // sequence has already failed.
+          Sequence.SetFailed(
+              InitializationSequence::FK_ParenthesizedListInitFailed);
+
+        return false;
+      }
+      if (!VerifyOnly) {
+        ExprResult ER = Seq.Perform(S, SubEntity, SubKind, E);
+        InitExprs.push_back(ER.get());
+      }
+    }
+    return true;
+  };
+
+  if (const ArrayType *AT =
+          S.getASTContext().getAsArrayType(Entity.getType())) {
+
+    SmallVector<InitializedEntity, 4> ElementEntities;
+    uint64_t ArrayLength;
+    if (const ConstantArrayType *CAT =
+            S.getASTContext().getAsConstantArrayType(Entity.getType()))
+      ArrayLength = CAT->getSize().getZExtValue();
+    else
+      ArrayLength = Args.size();
+
+    if (ArrayLength >= Args.size()) {
+      for (uint64_t I = 0; I < ArrayLength; ++I)
+        ElementEntities.push_back(
+            InitializedEntity::InitializeElement(S.getASTContext(), I, Entity));
+
+      if (!InitHelper(ElementEntities))
+        return;
+
+      ResultType = S.Context.getConstantArrayType(
+          AT->getElementType(), llvm::APInt(32, ArrayLength), nullptr,
+          ArrayType::Normal, 0);
+    }
+  } else if (isa<RecordType>(Entity.getType())) {
+    const CXXRecordDecl *RD =
+        cast<CXXRecordDecl>(Entity.getType()->getAs<RecordType>()->getDecl());
+
+    auto BaseRange = map_range(RD->bases(), [&S](auto &base) {
+      return InitializedEntity::InitializeBase(S.getASTContext(), &base, false);
+    });
+    auto FieldRange = map_range(RD->fields(), [](auto *field) {
+      return InitializedEntity::InitializeMember(field);
+    });
+
+    if (!InitHelper(BaseRange))
+      return;
+
+    if (!InitHelper(FieldRange))
+      return;
+
+    ResultType = Entity.getType();
+  }
+
+  if (Index != Args.size()) {
+    if (!VerifyOnly) {
+      QualType T = Entity.getType();
+      // FIXME: Union type unsupported.
+      int InitKind = T->isArrayType() ? 0 : 4;
+      S.Diag(Kind.getLocation(), diag::err_excess_initializers)
+          << InitKind << Args[Index]->getSourceRange();
+    } else if (!Sequence.Failed()) {
+      // Same as above, fall back to the "no matching constructor" path.
+      Sequence.SetFailed(
+          InitializationSequence::FK_ParenthesizedListInitFailed);
+    }
+    return;
+  }
+
+  if (VerifyOnly) {
+    Sequence.setSequenceKind(InitializationSequence::NormalSequence);
+    Sequence.AddParenthesizedListInitStep(Entity.getType());
+  } else if (Result) {
+    *Result = CXXParenListInitExpr::Create(S.getASTContext(), InitExprs,
+                                           ResultType, Kind.getLocation());
+  }
+
+  return;
 }
 
 /// Attempt initialization by constructor (C++ [dcl.init]), which
@@ -5905,7 +6023,10 @@ void InitializationSequence::InitializeFrom(Sema &S,
       TryListInitialization(S, Entity, Kind, cast<InitListExpr>(Initializer),
                             *this, TreatUnavailableAsInvalid);
       AddParenthesizedArrayInitStep(DestType);
-    } else if (DestAT->getElementType()->isCharType())
+    } else if (S.getLangOpts().CPlusPlus20 && !TopLevelOfInitList)
+      VerifyOrPerformParenthesizedListInit(S, Entity, Kind, Args, *this,
+                                           /*VerifyOnly=*/true);
+    else if (DestAT->getElementType()->isCharType())
       SetFailed(FK_ArrayNeedsInitListOrStringLiteral);
     else if (IsWideCharCompatible(DestAT->getElementType(), Context))
       SetFailed(FK_ArrayNeedsInitListOrWideStringLiteral);
@@ -5952,18 +6073,42 @@ void InitializationSequence::InitializeFrom(Sema &S,
     if (Kind.getKind() == InitializationKind::IK_Direct ||
         (Kind.getKind() == InitializationKind::IK_Copy &&
          (Context.hasSameUnqualifiedType(SourceType, DestType) ||
-          S.IsDerivedFrom(Initializer->getBeginLoc(), SourceType, DestType))))
-      TryConstructorInitialization(S, Entity, Kind, Args,
-                                   DestType, DestType, *this);
-    //     - Otherwise (i.e., for the remaining copy-initialization cases),
-    //       user-defined conversion sequences that can convert from the source
-    //       type to the destination type or (when a conversion function is
-    //       used) to a derived class thereof are enumerated as described in
-    //       13.3.1.4, and the best one is chosen through overload resolution
-    //       (13.3).
-    else
+          S.IsDerivedFrom(Initializer->getBeginLoc(), SourceType, DestType)))) {
+      TryConstructorInitialization(S, Entity, Kind, Args, DestType, DestType,
+                                   *this);
+      const CXXRecordDecl *RD =
+          dyn_cast<CXXRecordDecl>(DestType->getAs<RecordType>()->getDecl());
+      if (Failed() && S.getLangOpts().CPlusPlus20 && RD && RD->isAggregate())
+        // C++20 [dcl.init] 17.6.2.2:
+        //   - Otherwise, if no constructor is viable, the destination type is
+        //   an
+        //      aggregate class, and the initializer is a parenthesized
+        //      expression-list, the object is initialized as follows. Let e1,
+        //      ..., en be the elements of the aggregate . Let x1, ..., xk be
+        //      the elements of the expression-list. If k is greater than n, the
+        //      program is ill-formed. The element ei is copy-initialized with
+        //      xi for 1 <= i <= k. The remaining elements are initialized with
+        //      their default member initializers, if any, and otherwise are
+        //      value-initialized. For each 1 <= i < j <= n, every value
+        //      computation and side effect associated with the initialization
+        //      of ei is sequenced before those associated with the
+        //      initialization of ej. Note: By contrast with
+        //      direct-list-initialization, narrowing conversions (9.4.4) are
+        //      permitted, designators are not permitted, a temporary object
+        //      bound to a reference does not have its lifetime extended
+        //      (6.7.7), and there is no brace elision.
+        VerifyOrPerformParenthesizedListInit(S, Entity, Kind, Args, *this,
+                                             /*VerifyOnly=*/true);
+    } else {
+      //     - Otherwise (i.e., for the remaining copy-initialization cases),
+      //       user-defined conversion sequences that can convert from the
+      //       source type to the destination type or (when a conversion
+      //       function is used) to a derived class thereof are enumerated as
+      //       described in 13.3.1.4, and the best one is chosen through
+      //       overload resolution (13.3).
       TryUserDefinedConversion(S, DestType, Kind, Initializer, *this,
                                TopLevelOfInitList);
+    }
     return;
   }
 
@@ -8213,6 +8358,7 @@ ExprResult InitializationSequence::Perform(Sema &S,
   case SK_ConstructorInitializationFromList:
   case SK_StdInitializerListConstructorCall:
   case SK_ZeroInitialization:
+  case SK_ParenthesizedListInit:
     break;
   }
 
@@ -8902,6 +9048,14 @@ ExprResult InitializationSequence::Perform(Sema &S,
                                     CurInit.get()->getValueKind());
       break;
     }
+    case SK_ParenthesizedListInit: {
+      CurInit = false;
+      VerifyOrPerformParenthesizedListInit(S, Entity, Kind, Args, *this,
+                                           /*VerifyOnly=*/false, &CurInit);
+      if (CurInit.get() && ResultType)
+        *ResultType = CurInit.get()->getType();
+      break;
+    }
     }
   }
 
@@ -9500,6 +9654,10 @@ bool InitializationSequence::Diagnose(Sema &S,
            diag::note_explicit_ctor_deduction_guide_here) << false;
     break;
   }
+
+  case FK_ParenthesizedListInitFailed:
+    VerifyOrPerformParenthesizedListInit(S, Entity, Kind, Args, *this,
+                                         /*VerifyOnly=*/false);
   }
 
   PrintInitLocationNote(S, Entity);
@@ -9665,6 +9823,10 @@ void InitializationSequence::dump(raw_ostream &OS) const {
 
     case FK_ExplicitConstructor:
       OS << "list copy initialization chose explicit constructor";
+      break;
+
+    case FK_ParenthesizedListInitFailed:
+      OS << "parenthesized list initialization failed";
       break;
     }
     OS << '\n';
@@ -9836,6 +9998,9 @@ void InitializationSequence::dump(raw_ostream &OS) const {
 
     case SK_OCLZeroOpaqueType:
       OS << "OpenCL opaque type from zero";
+      break;
+    case SK_ParenthesizedListInit:
+      OS << "initialization from a parenthesized list of values";
       break;
     }
 
