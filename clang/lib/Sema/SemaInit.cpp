@@ -4128,9 +4128,8 @@ static void VerifyOrPerformParenthesizedListInit(
           AT->getElementType(), llvm::APInt(32, ArrayLength), nullptr,
           ArrayType::Normal, 0);
     }
-  } else if (isa<RecordType>(Entity.getType())) {
-    const CXXRecordDecl *RD =
-        cast<CXXRecordDecl>(Entity.getType()->getAs<RecordType>()->getDecl());
+  } else if (auto *RT = Entity.getType()->getAs<RecordType>()) {
+    const CXXRecordDecl *RD = cast<CXXRecordDecl>(RT->getDecl());
 
     auto BaseRange = map_range(RD->bases(), [&S](auto &base) {
       return InitializedEntity::InitializeBase(S.getASTContext(), &base, false);
