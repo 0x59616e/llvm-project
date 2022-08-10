@@ -4089,9 +4089,7 @@ static void VerifyOrPerformParenthesizedListInit(
       if (Seq.Failed()) {
         if (!VerifyOnly)
           Seq.Diagnose(S, SubEntity, SubKind, E);
-        else if (!Sequence.Failed())
-          // Fall back to the "no matching constructor" path if the
-          // sequence has already failed.
+        else
           Sequence.SetFailed(
               InitializationSequence::FK_ParenthesizedListInitFailed);
 
@@ -4150,12 +4148,11 @@ static void VerifyOrPerformParenthesizedListInit(
   if (Index != Args.size()) {
     if (!VerifyOnly) {
       QualType T = Entity.getType();
-      // FIXME: Union type unsupported.
+      // FIXME: Union is unsupported.
       int InitKind = T->isArrayType() ? 0 : 4;
       S.Diag(Kind.getLocation(), diag::err_excess_initializers)
           << InitKind << Args[Index]->getSourceRange();
-    } else if (!Sequence.Failed()) {
-      // Same as above, fall back to the "no matching constructor" path.
+    } else {
       Sequence.SetFailed(
           InitializationSequence::FK_ParenthesizedListInitFailed);
     }
@@ -6075,9 +6072,11 @@ void InitializationSequence::InitializeFrom(Sema &S,
           S.IsDerivedFrom(Initializer->getBeginLoc(), SourceType, DestType)))) {
       TryConstructorInitialization(S, Entity, Kind, Args, DestType, DestType,
                                    *this);
-      const CXXRecordDecl *RD =
-          dyn_cast<CXXRecordDecl>(DestType->getAs<RecordType>()->getDecl());
-      if (Failed() && S.getLangOpts().CPlusPlus20 && RD && RD->isAggregate())
+
+      if (const CXXRecordDecl *RD =
+              dyn_cast<CXXRecordDecl>(DestType->getAs<RecordType>()->getDecl());
+          (Failed() && !S.Diags.hasFatalErrorOccurred()) &&
+          S.getLangOpts().CPlusPlus20 && RD && RD->isAggregate())
         // C++20 [dcl.init] 17.6.2.2:
         //   - Otherwise, if no constructor is viable, the destination type is
         //   an
