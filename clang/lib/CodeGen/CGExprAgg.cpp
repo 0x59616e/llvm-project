@@ -205,6 +205,7 @@ public:
   }
 
   void VisitVAArgExpr(VAArgExpr *E);
+  void VisitCXXParenListInitExpr(CXXParenListInitExpr *E);
 
   void EmitInitializationToLValue(Expr *E, LValue Address);
   void EmitNullInitializationToLValue(LValue Address);
@@ -1588,6 +1589,49 @@ void AggExprEmitter::EmitNullInitializationToLValue(LValue lv) {
     // memsets; that would be easy for arrays, but relatively
     // difficult for structures with the current code.
     CGF.EmitNullInitialization(lv.getAddress(CGF), lv.getType());
+  }
+}
+
+void AggExprEmitter::VisitCXXParenListInitExpr(CXXParenListInitExpr *E) {
+
+  ArrayRef<Expr *> InitExprs = E->getInitExprs();
+  AggValueSlot Dest = EnsureSlot(E->getType());
+
+  if (const ArrayType *AT = dyn_cast<ArrayType>(E->getType())) {
+    for (auto Pair : llvm::enumerate(InitExprs)) {
+      // Initialization for every element of the array.
+      Address V = Builder.CreateConstArrayGEP(Dest.getAddress(), Pair.index());
+      LValue LV = CGF.MakeAddrLValue(V, AT->getElementType());
+      EmitInitializationToLValue(Pair.value(), LV);
+    }
+  } else if (CXXRecordDecl *RD = dyn_cast<CXXRecordDecl>(
+                 E->getType()->castAs<RecordType>()->getDecl())) {
+
+    unsigned Index = 0;
+    LValue DestLV = CGF.MakeAddrLValue(Dest.getAddress(), E->getType());
+
+    // Initialize the base classes first.
+    for (auto &Base : RD->bases()) {
+      if (Index < InitExprs.size()) {
+        const CXXRecordDecl *BaseRD = Base.getType()->getAsCXXRecordDecl();
+        Address V = CGF.GetAddressOfDirectBaseInCompleteClass(
+            Dest.getAddress(), RD, BaseRD,
+            /*isBaseVirtual*/ false);
+        AggValueSlot AggSlot = AggValueSlot::forAddr(
+            V, Qualifiers(), AggValueSlot::IsDestructed,
+            AggValueSlot::DoesNotNeedGCBarriers, AggValueSlot::IsNotAliased,
+            CGF.getOverlapForBaseInit(RD, BaseRD, Base.isVirtual()));
+        CGF.EmitAggExpr(InitExprs[Index++], AggSlot);
+      }
+    }
+
+    // Then initialize the fields.
+    for (const FieldDecl *F : RD->fields()) {
+      if (Index < InitExprs.size()) {
+        LValue LV = CGF.EmitLValueForFieldInitialization(DestLV, F);
+        EmitInitializationToLValue(InitExprs[Index++], LV);
+      }
+    }
   }
 }
 

@@ -5126,6 +5126,9 @@ recurse:
     Out << "E";
     break;
   }
+  case Expr::CXXParenListInitExprClass:
+    // FIXME: unimplemented
+    llvm_unreachable("unimplemented");
   }
 
   if (AsTemplateArg && !IsPrimaryExpr)

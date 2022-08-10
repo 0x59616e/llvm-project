@@ -2167,6 +2167,11 @@ void ASTStmtReader::VisitCXXFoldExpr(CXXFoldExpr *E) {
   E->Opcode = (BinaryOperatorKind)Record.readInt();
 }
 
+void ASTStmtReader::VisitCXXParenListInitExpr(CXXParenListInitExpr *E) {
+  // FIXME: unimplemented
+  llvm_unreachable("unimplemented");
+}
+
 void ASTStmtReader::VisitOpaqueValueExpr(OpaqueValueExpr *E) {
   VisitExpr(E);
   E->SourceExpr = Record.readSubExpr();

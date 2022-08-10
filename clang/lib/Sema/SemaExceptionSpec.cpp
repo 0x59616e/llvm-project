@@ -1411,6 +1411,10 @@ CanThrowResult Sema::canThrow(const Stmt *S) {
   case Expr::MSPropertySubscriptExprClass:
     llvm_unreachable("Invalid class for expression");
 
+  case Expr::CXXParenListInitExprClass:
+    // FIXME: unimplemented
+    llvm_unreachable("unimplemented");
+
     // Most statements can throw if any substatement can throw.
   case Stmt::AttributedStmtClass:
   case Stmt::BreakStmtClass:

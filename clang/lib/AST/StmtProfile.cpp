@@ -2181,6 +2181,11 @@ void StmtProfiler::VisitCXXFoldExpr(const CXXFoldExpr *S) {
   ID.AddInteger(S->getOperator());
 }
 
+void StmtProfiler::VisitCXXParenListInitExpr(const CXXParenListInitExpr *S) {
+  // FIXME: unimplemented
+  llvm_unreachable("unimplemented");
+}
+
 void StmtProfiler::VisitCoroutineBodyStmt(const CoroutineBodyStmt *S) {
   VisitStmt(S);
 }
