@@ -10,7 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "TGLexer.h"
+#include "llvm/TableGen/TGLexer.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Twine.h"

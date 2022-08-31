@@ -13,9 +13,9 @@
 #ifndef LLVM_LIB_TABLEGEN_TGPARSER_H
 #define LLVM_LIB_TABLEGEN_TGPARSER_H
 
-#include "TGLexer.h"
 #include "llvm/TableGen/Error.h"
 #include "llvm/TableGen/Record.h"
+#include "llvm/TableGen/TGLexer.h"
 #include <map>
 
 namespace llvm {
