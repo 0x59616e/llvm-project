@@ -131,6 +131,7 @@ public:
   }
 
   SMLoc getLoc() const;
+  StringRef getTokenText() const;
 
 private:
   /// LexToken - Read the next token and return its code.
