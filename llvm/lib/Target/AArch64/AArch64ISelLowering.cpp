@@ -17576,6 +17576,30 @@ static SDValue performUzpCombine(SDNode *N, SelectionDAG &DAG) {
     }
   }
 
+  // uzp1(trunc v1, trunc v2) => trunc(uzp1 v1, v2)
+  if (Op0.getOpcode() == ISD::BITCAST && Op1.getOpcode() == ISD::BITCAST &&
+      Op0.getOperand(0).getOpcode() == ISD::TRUNCATE &&
+      Op1.getOperand(0).getOpcode() == ISD::TRUNCATE) {
+
+    SDValue OrigOp0 = Op0.getOperand(0).getOperand(0);
+    SDValue OrigOp1 = Op1.getOperand(0).getOperand(0);
+    EVT CastResultType = MVT::Other;
+
+    if (OrigOp0.getValueType().getSimpleVT().SimpleTy == MVT::v2i64)
+      CastResultType = MVT::v4i32;
+
+    if (CastResultType != MVT::Other) {
+      SDValue BitCastResult0 =
+          DAG.getNode(ISD::BITCAST, DL, CastResultType, OrigOp0);
+      SDValue BitCastResult1 =
+          DAG.getNode(ISD::BITCAST, DL, CastResultType, OrigOp1);
+
+      SDValue ConcatResult = DAG.getNode(AArch64ISD::UZP1, DL, CastResultType,
+                                         BitCastResult0, BitCastResult1);
+      return DAG.getNode(ISD::TRUNCATE, DL, ResVT, ConcatResult);
+    }
+  }
+
   return SDValue();
 }
 
