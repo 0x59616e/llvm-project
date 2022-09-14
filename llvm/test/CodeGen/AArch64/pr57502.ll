@@ -6,9 +6,8 @@ target datalayout = "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128"
 define void @trunc(ptr %addr, <4 x i64> %input) {
 ; CHECK-LABEL: trunc:
 ; CHECK:       // %bb.0:
-; CHECK-NEXT:    xtn v1.2s, v1.2d
-; CHECK-NEXT:    xtn v0.2s, v0.2d
-; CHECK-NEXT:    uzp1 v0.4h, v0.4h, v1.4h
+; CHECK-NEXT:    uzp1 v0.4s, v0.4s, v1.4s
+; CHECK-NEXT:    xtn v0.4h, v0.4s
 ; CHECK-NEXT:    addv h0, v0.4h
 ; CHECK-NEXT:    fmov w8, s0
 ; CHECK-NEXT:    strb w8, [x0]
