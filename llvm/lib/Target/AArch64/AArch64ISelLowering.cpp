@@ -17576,6 +17576,81 @@ static SDValue performUzpCombine(SDNode *N, SelectionDAG &DAG) {
     }
   }
 
+  // Use index 0 as ResNo directly since we know that N is a uzp1 DAG node.
+  EVT VT = N->getValueType(0);
+
+  // uzp1(xtn x, xtn y) -> xtn(uzp1 (x, y))
+  // Only implemented on little-endian subtargets.
+  bool IsBigEndian = DAG.getDataLayout().isBigEndian();
+  if (!IsBigEndian && VT.isSimple() && VT.is64BitVector() &&
+      VT.getVectorNumElements() >= 2) {
+
+    MVT SimpleVT = VT.getSimpleVT();
+    assert((SimpleVT == MVT::v4i16 || SimpleVT == MVT::v2i32 ||
+            SimpleVT == MVT::v8i8) &&
+           "Expect SimpleVT to be one of v4i16 or v2i32 or v8i8");
+
+    auto getSourceOp = [](SDValue Operand) -> SDValue {
+      if (Operand.getOpcode() == ISD::TRUNCATE)
+        return Operand->getOperand(0);
+      if (Operand.getOpcode() == ISD::BITCAST &&
+          Operand->getOperand(0).getOpcode() == ISD::TRUNCATE)
+        return Operand->getOperand(0)->getOperand(0);
+      return SDValue();
+    };
+
+    auto HalfElementSize = [&DAG, &DL](SDValue Source,
+                                       SDValue &Result) -> bool {
+      EVT ResultTy;
+      switch (Source.getSimpleValueType().SimpleTy) {
+      case MVT::v2i64:
+        ResultTy = MVT::v4i32;
+        break;
+      case MVT::v4i32:
+        ResultTy = MVT::v8i16;
+        break;
+      case MVT::v8i16:
+        ResultTy = MVT::v16i8;
+        break;
+      default:
+        return false;
+      }
+      Result = DAG.getNode(ISD::BITCAST, DL, ResultTy, Source);
+      return true;
+    };
+
+    SDValue SourceOp0 = getSourceOp(Op0);
+    SDValue SourceOp1 = getSourceOp(Op1);
+    EVT DestVT = VT;
+
+    if (!SourceOp0 || !SourceOp1)
+      return SDValue();
+
+    SDValue UzpOp0, UzpOp1, UzpResult;
+    if (HalfElementSize(SourceOp0, UzpOp0) &&
+        HalfElementSize(SourceOp1, UzpOp1))
+      UzpResult = DAG.getNode(AArch64ISD::UZP1, DL, UzpOp0.getValueType(),
+                              UzpOp0, UzpOp1);
+    else
+      return SDValue();
+
+    auto getDoubleElementSizeVT = [](EVT VT) -> EVT {
+      switch (VT.getSimpleVT().SimpleTy) {
+      case MVT::v2i32:
+        return MVT::v2i64;
+      case MVT::v4i16:
+        return MVT::v4i32;
+      case MVT::v8i8:
+        return MVT::v8i16;
+      default:
+        llvm_unreachable("Expect SimpleVT to be one of v4i16 or v2i32 or v8i8");
+      }
+    };
+
+    return DAG.getNode(ISD::TRUNCATE, DL, DestVT,
+                       DAG.getNode(ISD::BITCAST, DL,
+                                   getDoubleElementSizeVT(DestVT), UzpResult));
+  }
   return SDValue();
 }
 
