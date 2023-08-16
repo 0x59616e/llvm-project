@@ -6755,15 +6755,6 @@ public:
     ~CXXThisScopeRAII();
   };
 
-  bool isCheckingConstraint = false;
-  class CheckingConstraintRAII {
-    Sema &S;
-
-  public:
-    CheckingConstraintRAII(Sema &S) : S(S) { S.isCheckingConstraint = true; }
-    ~CheckingConstraintRAII() { S.isCheckingConstraint = false; }
-  };
-
   /// Make sure the value of 'this' is actually available in the current
   /// context, if it is a potentially evaluated context.
   ///

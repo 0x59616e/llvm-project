@@ -19656,9 +19656,6 @@ bool Sema::tryCaptureVariable(
   if (CapturingFunctionScopes == 0 && (!BuildAndDiagnose || VarDC == DC))
     return true;
 
-  if (isCheckingConstraint)
-    return true;
-
   const auto *VD = dyn_cast<VarDecl>(Var);
   if (VD) {
     if (VD->isInitCapture())
