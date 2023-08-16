@@ -12,6 +12,7 @@
 
 #include "clang/Sema/SemaConcept.h"
 #include "TreeTransform.h"
+#include "clang/AST/ASTConcept.h"
 #include "clang/AST/ASTLambda.h"
 #include "clang/AST/ExprConcepts.h"
 #include "clang/AST/RecursiveASTVisitor.h"
@@ -24,8 +25,10 @@
 #include "clang/Sema/SemaInternal.h"
 #include "clang/Sema/Template.h"
 #include "clang/Sema/TemplateDeduction.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/PointerUnion.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
 #include <optional>
 
@@ -570,9 +573,72 @@ bool Sema::addInstantiatedCapturesToScope(
   return false;
 }
 
+static bool addFunctionParameterToScope(FunctionDecl *Function,
+                                        const FunctionDecl *PatternDecl,
+                                        LocalInstantiationScope &Scope) {
+  while (isLambdaCallOperator(Function)) {
+    Function = cast<FunctionDecl>(Function->getParent()->getParent());
+    PatternDecl = cast<FunctionDecl>(PatternDecl->getParent()->getParent());
+  }
+
+  for (unsigned I = 0; I < PatternDecl->getNumParams(); ++I) {
+    const ParmVarDecl *PV = PatternDecl->getParamDecl(I);
+    if (!PV->isParameterPack()) {
+      Scope.InstantiatedLocal(PV, Function->getParamDecl(I));
+      continue;
+    }
+
+    Scope.MakeInstantiatedLocalArgPack(PV);
+
+    if (I >= Function->getNumParams())
+      break;
+
+    for (ParmVarDecl *decl : llvm::drop_begin(Function->parameters(), I)) {
+      Scope.InstantiatedLocalPackArg(PV, decl);
+    }
+  }
+
+  return false;
+}
+
+static bool addLocalDeclarationToScope(FunctionDecl *Function,
+                                       const FunctionDecl *PatternDecl,
+                                       LocalInstantiationScope &Scope) {
+  auto isLocalVarDeclPredicate = [](Decl *decl) {
+    return isa<VarDecl>(decl) && cast<VarDecl>(decl)->isLocalVarDecl();
+  };
+
+  while (true) {
+    auto instDecls =
+        llvm::make_filter_range(Function->decls(), isLocalVarDeclPredicate);
+    auto templDecls =
+        llvm::make_filter_range(PatternDecl->decls(), isLocalVarDeclPredicate);
+
+    for (Decl *instDecl : instDecls) {
+      auto it = llvm::find_if(templDecls, [&](Decl *templDecl) {
+        return instDecl->getLocation() == templDecl->getLocation();
+      });
+
+      assert(it != templDecls.end() && "Cannot find the local variable's "
+                                       "declaration in the template pattern");
+
+      Scope.InstantiatedLocal(*it, instDecl);
+    }
+
+    if (!isLambdaCallOperator(Function))
+      break;
+
+    Function = cast<FunctionDecl>(Function->getParent()->getParent());
+    PatternDecl = cast<FunctionDecl>(PatternDecl->getParent()->getParent());
+  }
+
+  return false;
+}
+
 bool Sema::SetupConstraintScope(
     FunctionDecl *FD, std::optional<ArrayRef<TemplateArgument>> TemplateArgs,
-    MultiLevelTemplateArgumentList MLTAL, LocalInstantiationScope &Scope) {
+    MultiLevelTemplateArgumentList MLTAL, LocalInstantiationScope &Scope,
+    bool isScopeChanged) {
   if (FD->isTemplateInstantiation() && FD->getPrimaryTemplate()) {
     FunctionTemplateDecl *PrimaryTemplate = FD->getPrimaryTemplate();
     InstantiatingTemplate Inst(
@@ -637,6 +703,18 @@ bool Sema::SetupConstraintScope(
     if (isLambdaCallOperator(FD) &&
         addInstantiatedCapturesToScope(FD, InstantiatedFrom, Scope, MLTAL))
       return true;
+
+    if (isScopeChanged && isLambdaCallOperator(FD)) {
+      FunctionDecl *Pattern =
+          cast<FunctionDecl>(InstantiatedFrom->getParent()->getParent());
+      FunctionDecl *Function = cast<FunctionDecl>(FD->getParent()->getParent());
+
+      if (addLocalDeclarationToScope(Function, Pattern, Scope))
+        return true;
+
+      if (addFunctionParameterToScope(Function, Pattern, Scope))
+        return true;
+    }
   }
 
   return false;
@@ -647,7 +725,7 @@ bool Sema::SetupConstraintScope(
 std::optional<MultiLevelTemplateArgumentList>
 Sema::SetupConstraintCheckingTemplateArgumentsAndScope(
     FunctionDecl *FD, std::optional<ArrayRef<TemplateArgument>> TemplateArgs,
-    LocalInstantiationScope &Scope) {
+    LocalInstantiationScope &Scope, bool isScopeChanged) {
   MultiLevelTemplateArgumentList MLTAL;
 
   // Collect the list of template arguments relative to the 'primary' template.
@@ -658,7 +736,7 @@ Sema::SetupConstraintCheckingTemplateArgumentsAndScope(
                                    /*RelativeToPrimary=*/true,
                                    /*Pattern=*/nullptr,
                                    /*ForConstraintInstantiation=*/true);
-  if (SetupConstraintScope(FD, TemplateArgs, MLTAL, Scope))
+  if (SetupConstraintScope(FD, TemplateArgs, MLTAL, Scope, isScopeChanged))
     return std::nullopt;
 
   return MLTAL;
@@ -697,12 +775,14 @@ bool Sema::CheckFunctionConstraints(const FunctionDecl *FD,
       CtxToSave = CtxToSave->getNonTransparentContext();
   }
 
+  bool isScopeChanged = !CtxToSave->Encloses(CurContext);
+
   ContextRAII SavedContext{*this, CtxToSave};
   LocalInstantiationScope Scope(*this, !ForOverloadResolution ||
                                            isLambdaCallOperator(FD));
   std::optional<MultiLevelTemplateArgumentList> MLTAL =
       SetupConstraintCheckingTemplateArgumentsAndScope(
-          const_cast<FunctionDecl *>(FD), {}, Scope);
+          const_cast<FunctionDecl *>(FD), {}, Scope, isScopeChanged);
 
   if (!MLTAL)
     return true;

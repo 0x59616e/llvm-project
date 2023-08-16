@@ -7385,9 +7385,11 @@ private:
   /// used by SetupConstraintCheckingTemplateArgumentsAndScope to recursively(in
   /// the case of lambdas) set up the LocalInstantiationScope of the current
   /// function.
-  bool SetupConstraintScope(
-      FunctionDecl *FD, std::optional<ArrayRef<TemplateArgument>> TemplateArgs,
-      MultiLevelTemplateArgumentList MLTAL, LocalInstantiationScope &Scope);
+  bool
+  SetupConstraintScope(FunctionDecl *FD,
+                       std::optional<ArrayRef<TemplateArgument>> TemplateArgs,
+                       MultiLevelTemplateArgumentList MLTAL,
+                       LocalInstantiationScope &Scope, bool isScopeChanged);
 
   /// Used during constraint checking, sets up the constraint template argument
   /// lists, and calls SetupConstraintScope to set up the
@@ -7395,7 +7397,7 @@ private:
   std::optional<MultiLevelTemplateArgumentList>
   SetupConstraintCheckingTemplateArgumentsAndScope(
       FunctionDecl *FD, std::optional<ArrayRef<TemplateArgument>> TemplateArgs,
-      LocalInstantiationScope &Scope);
+      LocalInstantiationScope &Scope, bool isScopeChanged = false);
 
 private:
   // The current stack of constraint satisfactions, so we can exit-early.
