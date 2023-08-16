@@ -16,10 +16,12 @@
 #include "clang/AST/ASTLambda.h"
 #include "clang/AST/ExprConcepts.h"
 #include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/AST/Type.h"
 #include "clang/Basic/OperatorPrecedence.h"
 #include "clang/Sema/EnterExpressionEvaluationContext.h"
 #include "clang/Sema/Initialization.h"
 #include "clang/Sema/Overload.h"
+#include "clang/Sema/ScopeInfo.h"
 #include "clang/Sema/Sema.h"
 #include "clang/Sema/SemaDiagnostic.h"
 #include "clang/Sema/SemaInternal.h"
@@ -742,6 +744,58 @@ Sema::SetupConstraintCheckingTemplateArgumentsAndScope(
   return MLTAL;
 }
 
+namespace {
+class RebuildLambdaScopeInfoRAII {
+  Sema &S;
+  unsigned LambdaScopeInfoCount;
+
+public:
+  RebuildLambdaScopeInfoRAII(Sema &S, const FunctionDecl *FD,
+                             bool isScopeChanged)
+      : S(S), LambdaScopeInfoCount(0) {
+    if (!isScopeChanged)
+      return;
+
+    for (const FunctionDecl *Lambda = FD; isLambdaCallOperator(Lambda);) {
+      S.PushLambdaScope();
+      Lambda = dyn_cast<FunctionDecl>(Lambda->getParent()->getParent());
+      LambdaScopeInfoCount++;
+    }
+  }
+
+  ~RebuildLambdaScopeInfoRAII() {
+    while (LambdaScopeInfoCount--)
+      S.PopFunctionScopeInfo();
+  }
+};
+} // namespace
+
+static void RebuildLambdaScopeInfo(Sema &S, const FunctionDecl *FD) {
+  ArrayRef<sema::FunctionScopeInfo *> Infos = S.getFunctionScopes();
+  unsigned Index = Infos.size() - 1;
+  const FunctionDecl *Lambda =
+      dyn_cast<FunctionDecl>(FD->getParent()->getParent());
+
+  while (isLambdaCallOperator(Lambda)) {
+    auto isValueDeclPredicate = [](Decl *decl) { return isa<ValueDecl>(decl); };
+    auto valueDecls =
+        llvm::make_filter_range(Lambda->decls(), isValueDeclPredicate);
+
+    for (Decl *decl : valueDecls) {
+      ValueDecl *VD = cast<ValueDecl>(decl);
+
+      LambdaScopeInfo *LSI = cast<LambdaScopeInfo>(Infos[Index]);
+      LSI->ImpCaptureStyle = CapturingScopeInfo::ImpCap_LambdaByval;
+      LSI->addCapture(VD, /*isBlock=*/false, /*isByRef=*/false,
+                      /*isNested=*/false, VD->getLocation(), SourceLocation(),
+                      VD->getType(), /*Invalid=*/false);
+    }
+
+    Lambda = dyn_cast<FunctionDecl>(Lambda->getParent()->getParent());
+    Index--;
+  }
+}
+
 bool Sema::CheckFunctionConstraints(const FunctionDecl *FD,
                                     ConstraintSatisfaction &Satisfaction,
                                     SourceLocation UsageLoc,
@@ -768,14 +822,19 @@ bool Sema::CheckFunctionConstraints(const FunctionDecl *FD,
 
   DeclContext *CtxToSave = const_cast<FunctionDecl *>(FD);
 
-  while (isLambdaCallOperator(CtxToSave) || FD->isTransparentContext()) {
-    if (isLambdaCallOperator(CtxToSave))
-      CtxToSave = CtxToSave->getParent()->getParent();
-    else
-      CtxToSave = CtxToSave->getNonTransparentContext();
+  if (isLambdaCallOperator(CtxToSave))
+    CtxToSave = CtxToSave->getParent()->getParent();
+
+  while (FD->isTransparentContext()) {
+    CtxToSave = CtxToSave->getNonTransparentContext();
   }
 
   bool isScopeChanged = !CtxToSave->Encloses(CurContext);
+  RebuildLambdaScopeInfoRAII LambdaScopeInfos(*this, FD, isScopeChanged);
+
+  if (isScopeChanged && isLambdaCallOperator(FD)) {
+    RebuildLambdaScopeInfo(*this, FD);
+  }
 
   ContextRAII SavedContext{*this, CtxToSave};
   LocalInstantiationScope Scope(*this, !ForOverloadResolution ||
