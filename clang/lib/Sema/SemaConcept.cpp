@@ -16,6 +16,7 @@
 #include "clang/AST/ASTLambda.h"
 #include "clang/AST/ExprConcepts.h"
 #include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/AST/StmtVisitor.h"
 #include "clang/Basic/OperatorPrecedence.h"
 #include "clang/Sema/EnterExpressionEvaluationContext.h"
 #include "clang/Sema/Initialization.h"
@@ -29,7 +30,9 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/Support/ErrorHandling.h"
 #include <optional>
 
 using namespace clang;
@@ -573,63 +576,84 @@ bool Sema::addInstantiatedCapturesToScope(
   return false;
 }
 
-static bool addFunctionParameterToScope(FunctionDecl *Function,
-                                        const FunctionDecl *PatternDecl,
-                                        LocalInstantiationScope &Scope) {
-  while (isLambdaCallOperator(Function)) {
-    Function = cast<FunctionDecl>(Function->getParent()->getParent());
-    PatternDecl = cast<FunctionDecl>(PatternDecl->getParent()->getParent());
+namespace {
+
+struct DeclRefExprCollector : RecursiveASTVisitor<DeclRefExprCollector> {
+  DeclRefExprCollector(llvm::SmallVectorImpl<DeclRefExpr *> &declRefExprs)
+      : declRefExprs(declRefExprs) {}
+
+  bool VisitDeclRefExpr(DeclRefExpr *E) {
+    assert(isa<VarDecl>(E->getDecl()));
+    declRefExprs.push_back(E);
+    return true;
   }
+
+private:
+  llvm::SmallVectorImpl<DeclRefExpr *> &declRefExprs;
+};
+
+struct VarDeclFinder : RecursiveASTVisitor<VarDeclFinder> {
+  VarDeclFinder(DeclRefExpr *E, VarDecl *&VD) : E(E), VD(VD) {}
+
+  bool VisitVarDecl(VarDecl *V) {
+    if (!isa<ParmVarDecl>(V) &&
+        V->getSourceRange() == E->getDecl()->getSourceRange())
+      VD = V;
+
+    return true;
+  }
+
+private:
+  DeclRefExpr *E;
+  VarDecl *&VD;
+};
+
+} // namespace
+
+static void addLocalDeclarationToScope(FunctionDecl *FD,
+                                       LocalInstantiationScope &Scope) {
+  Expr *requireClause = FD->getTrailingRequiresClause();
+
+  while (isLambdaCallOperator(FD))
+    FD = cast<FunctionDecl>(FD->getParent()->getParent());
+
+  FunctionDecl *Pattern = FD->getPrimaryTemplate()->getTemplatedDecl();
+  llvm::SmallVector<DeclRefExpr *> declRefExprs;
+
+  DeclRefExprCollector(declRefExprs).TraverseStmt(requireClause);
+
+  for (DeclRefExpr *DRE : declRefExprs) {
+    VarDecl *VD = nullptr;
+    VarDeclFinder(DRE, VD).TraverseDecl(Pattern);
+    if (!VD)
+      continue;
+    Scope.InstantiatedLocal(DRE->getDecl(), VD);
+  }
+}
+
+static bool addFunctionParameterToScope(FunctionDecl *FD,
+                                        LocalInstantiationScope &Scope) {
+
+  while (isLambdaCallOperator(FD))
+    FD = cast<FunctionDecl>(FD->getParent()->getParent());
+
+  FunctionDecl *PatternDecl = FD->getPrimaryTemplate()->getTemplatedDecl();
 
   for (unsigned I = 0; I < PatternDecl->getNumParams(); ++I) {
     const ParmVarDecl *PV = PatternDecl->getParamDecl(I);
     if (!PV->isParameterPack()) {
-      Scope.InstantiatedLocal(PV, Function->getParamDecl(I));
+      Scope.InstantiatedLocal(PV, FD->getParamDecl(I));
       continue;
     }
 
     Scope.MakeInstantiatedLocalArgPack(PV);
 
-    if (I >= Function->getNumParams())
+    if (I >= FD->getNumParams())
       break;
 
-    for (ParmVarDecl *decl : llvm::drop_begin(Function->parameters(), I)) {
+    for (ParmVarDecl *decl : llvm::drop_begin(FD->parameters(), I)) {
       Scope.InstantiatedLocalPackArg(PV, decl);
     }
-  }
-
-  return false;
-}
-
-static bool addLocalDeclarationToScope(FunctionDecl *Function,
-                                       const FunctionDecl *PatternDecl,
-                                       LocalInstantiationScope &Scope) {
-  auto isLocalVarDeclPredicate = [](Decl *decl) {
-    return isa<VarDecl>(decl) && cast<VarDecl>(decl)->isLocalVarDecl();
-  };
-
-  while (true) {
-    auto instDecls =
-        llvm::make_filter_range(Function->decls(), isLocalVarDeclPredicate);
-    auto templDecls =
-        llvm::make_filter_range(PatternDecl->decls(), isLocalVarDeclPredicate);
-
-    for (Decl *instDecl : instDecls) {
-      auto it = llvm::find_if(templDecls, [&](Decl *templDecl) {
-        return instDecl->getLocation() == templDecl->getLocation();
-      });
-
-      assert(it != templDecls.end() && "Cannot find the local variable's "
-                                       "declaration in the template pattern");
-
-      Scope.InstantiatedLocal(*it, instDecl);
-    }
-
-    if (!isLambdaCallOperator(Function))
-      break;
-
-    Function = cast<FunctionDecl>(Function->getParent()->getParent());
-    PatternDecl = cast<FunctionDecl>(PatternDecl->getParent()->getParent());
   }
 
   return false;
@@ -639,6 +663,12 @@ bool Sema::SetupConstraintScope(
     FunctionDecl *FD, std::optional<ArrayRef<TemplateArgument>> TemplateArgs,
     MultiLevelTemplateArgumentList MLTAL, LocalInstantiationScope &Scope,
     bool isScopeChanged) {
+
+  if (isScopeChanged && isLambdaCallOperator(FD)) {
+    addLocalDeclarationToScope(FD, Scope);
+    addFunctionParameterToScope(FD, Scope);
+  }
+
   if (FD->isTemplateInstantiation() && FD->getPrimaryTemplate()) {
     FunctionTemplateDecl *PrimaryTemplate = FD->getPrimaryTemplate();
     InstantiatingTemplate Inst(
@@ -703,18 +733,6 @@ bool Sema::SetupConstraintScope(
     if (isLambdaCallOperator(FD) &&
         addInstantiatedCapturesToScope(FD, InstantiatedFrom, Scope, MLTAL))
       return true;
-
-    if (isScopeChanged && isLambdaCallOperator(FD)) {
-      FunctionDecl *Pattern =
-          cast<FunctionDecl>(InstantiatedFrom->getParent()->getParent());
-      FunctionDecl *Function = cast<FunctionDecl>(FD->getParent()->getParent());
-
-      if (addLocalDeclarationToScope(Function, Pattern, Scope))
-        return true;
-
-      if (addFunctionParameterToScope(Function, Pattern, Scope))
-        return true;
-    }
   }
 
   return false;
@@ -794,7 +812,7 @@ bool Sema::CheckFunctionConstraints(const FunctionDecl *FD,
     Record = const_cast<CXXRecordDecl *>(Method->getParent());
   }
   CXXThisScopeRAII ThisScope(*this, Record, ThisQuals, Record != nullptr);
-  CheckingConstraintRAII CheckingConstraint(*this);
+  CheckingLambdaConstraintRAII CheckingConstraint(*this);
 
   return CheckConstraintSatisfaction(
       FD, {FD->getTrailingRequiresClause()}, *MLTAL,
@@ -964,6 +982,7 @@ bool Sema::CheckInstantiatedFunctionTemplateConstraints(
     return false;
   }
 
+  bool isScopeChanged = !Decl->Encloses(CurContext);
   // Enter the scope of this instantiation. We don't use
   // PushDeclContext because we don't have a scope.
   Sema::ContextRAII savedContext(*this, Decl);
@@ -971,7 +990,7 @@ bool Sema::CheckInstantiatedFunctionTemplateConstraints(
 
   std::optional<MultiLevelTemplateArgumentList> MLTAL =
       SetupConstraintCheckingTemplateArgumentsAndScope(Decl, TemplateArgs,
-                                                       Scope);
+                                                       Scope, isScopeChanged);
 
   if (!MLTAL)
     return true;
@@ -984,6 +1003,8 @@ bool Sema::CheckInstantiatedFunctionTemplateConstraints(
   }
   CXXThisScopeRAII ThisScope(*this, Record, ThisQuals, Record != nullptr);
   FunctionScopeRAII FuncScope(*this);
+  CheckingLambdaConstraintRAII CheckingConstraintContext(*this);
+
   if (isLambdaCallOperator(Decl))
     PushLambdaScope();
   else

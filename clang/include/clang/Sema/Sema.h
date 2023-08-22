@@ -6755,13 +6755,18 @@ public:
     ~CXXThisScopeRAII();
   };
 
-  bool isCheckingConstraint = false;
-  class CheckingConstraintRAII {
+  bool isCheckingLambdaConstraint = false;
+  // RAII object used to signal that we are checking the constraint of a lambda.
+  // The motivation is to avoid capturing the variable referenced in the require
+  // clause, as it may lead to some unwanted diagnostics.
+  class CheckingLambdaConstraintRAII {
     Sema &S;
 
   public:
-    CheckingConstraintRAII(Sema &S) : S(S) { S.isCheckingConstraint = true; }
-    ~CheckingConstraintRAII() { S.isCheckingConstraint = false; }
+    CheckingLambdaConstraintRAII(Sema &S) : S(S) {
+      S.isCheckingLambdaConstraint = true;
+    }
+    ~CheckingLambdaConstraintRAII() { S.isCheckingLambdaConstraint = false; }
   };
 
   /// Make sure the value of 'this' is actually available in the current

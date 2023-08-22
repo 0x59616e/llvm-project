@@ -19656,7 +19656,9 @@ bool Sema::tryCaptureVariable(
   if (CapturingFunctionScopes == 0 && (!BuildAndDiagnose || VarDC == DC))
     return true;
 
-  if (isCheckingConstraint)
+  // We don't want to really capture the variable when checking the constraint
+  // of a lambda.
+  if (isCheckingLambdaConstraint)
     return true;
 
   const auto *VD = dyn_cast<VarDecl>(Var);
